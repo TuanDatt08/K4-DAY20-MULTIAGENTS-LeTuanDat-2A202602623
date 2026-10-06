@@ -16,9 +16,9 @@
 
 > Dự đoán điều kiện nào đạt điểm cao nhất trên **tác vụ đánh giá** và vì sao. Nêu căn cứ từ phân loại lỗi (mục 4) và từ tài liệu tham khảo. Điền cả ba dòng; `verify_freeze.py` kiểm tra điều này.
 
-- H1 (subagents so với baseline):
-- H2 (skills-auto so với baseline):
-- H3 (tác vụ học so với tác vụ đánh giá):
+- H1 (subagents so với baseline): Trên tác vụ đánh giá, `subagents` **không cao điểm hơn** `baseline` (chênh lệch trong khoảng ±1 check mỗi tác vụ), nhưng tốn **khoảng 1,1–4 lần token**. Căn cứ: trên tác vụ học, hai điều kiện cùng điểm (code 6/10, logs 6/9) trong khi token tăng 8% và 3,7 lần. Lỗi chủ yếu là nhóm E (quy ước không có trong đề), mà chia việc không cung cấp thêm quy ước nào. Bài viết của Anthropic về hệ thống nghiên cứu đa tác tử cũng ghi nhận chi phí token khoảng 15 lần so với hội thoại thường.
+- H2 (skills-auto so với baseline): `skills-auto` **cao hơn** `baseline` trên tác vụ đánh giá của họ `code` và `logs`. Mức tăng đến từ các check `rule_` đã học, vì skill chép chính xác các quy ước Acme mà tác vụ đánh giá dùng lại. **Không cải thiện** họ `data` (không có skill nào qua được bộ lọc) và **không giúp** quy ước mới chỉ có ở tác vụ đánh giá. Check kỹ thuật giữ nguyên (baseline đã đạt 17/18). Điều kiện để giả thuyết đúng: tác tử thực sự đọc skill (`skills_read` > 0) và làm theo. SkillsBench ghi nhận skill do mô hình tự sinh trung bình không có lợi, nên mức tăng có thể nhỏ hoặc bằng 0 nếu skill không được đọc.
+- H3 (tác vụ học so với tác vụ đánh giá): Mức tăng nhờ skill trên **tác vụ học lớn hơn** trên tác vụ đánh giá, vì skill được rút từ chính phản hồi của tác vụ học, còn tác vụ đánh giá có dữ liệu khác và một quy ước mới (dấu hiệu quá khớp theo SkillEvolBench). Do model bỏ qua `temperature`, chênh lệch nhỏ hơn hoặc bằng 1 check mỗi tác vụ nên được coi là nhiễu.
 
 ## 3. Làm quen Deep Agents (Phần 0.3)
 
@@ -59,20 +59,28 @@ Nhận xét:
   - `description` của mỗi subagent viết dạng *"Use BEFORE/AFTER..."* để tác tử chính biết khi nào gọi.
 - `subagent_calls`:
   - **code-learn = 6**: `explorer` ×3, `implementer` ×2, `reviewer` ×1. Tác tử chính giao việc cho cả ba vai trò, nhưng gọi `explorer` 3 lần liên tiếp với yêu cầu gần trùng nhau (lần 3: *"Read the exact contents of ..."*). Đây là dấu hiệu tác tử chính không tin báo cáo tóm tắt và phải hỏi lại, gây thừa chi phí.
-  - **data-learn, logs-learn: (chưa có, chạy lại sau lỗi 429)**
+  - **logs-learn = 4**: `explorer` ×2, `implementer` ×1, `reviewer` ×1. Lần này lời giao việc cho `implementer` liệt kê đầy đủ các quy tắc của đề (*"strictly according to all rules: 1. Filter: include only entries whose level is ERROR or CRITICAL ... 2. timestamp_utc: converted to UTC ..."*). Nhờ vậy 6/6 check kỹ thuật đạt, nhưng 3 check `rule_` vẫn fail giống baseline, vì quy ước không có trong đề nên tác tử chính không thể truyền đi.
+  - **data-learn**: lần chạy bị lỗi hạ tầng (lần 1: `429 RESOURCE_EXHAUSTED`; lần 2: `RemoteProtocolError: Server disconnected`), không dùng để phân tích.
 - Thông tin thiếu khi giao việc:
   - Không lời giao việc nào chép quy tắc *"Do not modify the existing files in `tests/`"* của đề. Lời giao cho `implementer` chỉ ghi *"Implement fixes for parse_price, apply_discount, low_stock, and to_csv_row according to their docstring specifications..."*, và check `tests_not_modified` vẫn fail như ở baseline.
   - `reviewer` được gọi (*"Run pytest and check git status/diff..."*), nhưng không được giao danh sách quy tắc của đề, nên không phát hiện vi phạm.
   - Kết luận: `SUBAGENTS_NOTE` yêu cầu *"put ALL the task rules ... in the delegation message"*, nhưng tác tử chính không làm theo.
-- Token và thời gian (code-learn): `subagents` 370,275 token / 206.8 s so với `baseline` 342,181 token / 154.6 s (**+8% token, +34% thời gian**), cùng điểm 6/10. Số `tool_calls` của luồng chính giảm (10 so với 25) vì công việc chuyển vào subagent, nhưng token vẫn được tính đủ nhờ `UsageMetadataCallbackHandler`.
+- Token và thời gian, cùng điểm ở cả hai tác vụ:
+  - code-learn: `subagents` 370,275 token / 206.8 s so với `baseline` 342,181 token / 154.6 s (**+8% token, +34% thời gian**), cùng 6/10.
+  - logs-learn: `subagents` 262,825 token / 118.7 s so với `baseline` 71,373 token / 51.8 s (**gấp 3,7 lần token**), cùng 6/9. Số `tool_calls` của luồng chính giảm (10 so với 25) vì công việc chuyển vào subagent, nhưng token vẫn được tính đủ nhờ `UsageMetadataCallbackHandler`.
 
 ## 6. Self-evolving: skill do curator sinh (Phần 3)
 
-- Số lần chạy curator, số skill bị xóa và lý do:
+- Số lần chạy curator: **3** (1 lần đầu và 2 lần chạy lại, đúng giới hạn).
+  - **Lần 1** sinh `coding-standards-and-testing` và `strict-schema-output-compliance` (lưu ở `results/curator-run1/`). Cả hai bị **xóa** vì quá mơ hồ: chỉ ghi *"under the required heading"*, *"in the specified test file"*, *"Include all required metadata blocks"* mà không nêu quy ước cụ thể. Quy ước Acme không có trong đề, nên skill như vậy không giúp tác tử biết phải làm gì. Nguyên nhân: prompt của curator cấm *"no answers or numbers"*, khiến model né cả tên quy ước. Prompt được sửa để yêu cầu chép chính xác các dòng `RULE:` (tên tệp, heading, khóa JSON), nhưng vẫn cấm giá trị tính từ dữ liệu tác vụ. Không sửa tay nội dung skill.
+  - **Lần 2** (bộ skill được chốt và đóng băng): sinh 3 skill. `validate_skill` **từ chối** skill dữ liệu `data-cleaning-and-json-export` vì *"mentions evaluation material: orders"*. Giữ 2 skill bên dưới.
+  - **Lần 3** (ghi ra `results/curator-run3/`, không dùng): skill dữ liệu lại bị từ chối với cùng lý do; 2 skill còn lại gần trùng lần 2 nên không thay.
+  - Hệ quả: họ `data` **không có skill nào**. Từ "orders" là từ thông dụng trong quy tắc của data-learn (*"one row per distinct order"*), nhưng cũng là tên tệp của tác vụ đánh giá, nên bộ lọc rò rỉ chặn cả skill hợp lệ (dương tính giả). Đây là đánh đổi giữa an toàn và hữu ích.
 
 | Skill | Tổng quát hay riêng cho tác vụ học? | Đúng hay sai (nêu chỗ sai nếu có) | Độ dài, `description` và `skills_read` ở Phần 3.4 |
 |---|---|---|---|
-| | | | |
+| `python-code-refactoring-and-testing` | Tổng quát cho mọi tác vụ sửa gói Python. Không nêu tên hàm hay tệp của workspace; chỉ có tên do quy ước Acme yêu cầu (`tests/test_regressions.py`, `CHANGELOG.md`, `## Unreleased`, `- fix(<function name>): ...`). | Đúng: khớp từng `detail` của 4 check thất bại ở code-learn (cấm sửa `tests/`, type hints, regression tests, changelog). Bước 5 (*"Run pytest with PYTHONPATH set to the package root"*) hợp lý nhưng hơi thừa. | 9 dòng, 5 bước, có tự kiểm tra. `description` *"Use when fixing bugs, refactoring Python packages, or adding tests and changelog entries"*: rộng, đúng tình huống kích hoạt. `skills_read` ở Phần 3.4: không chạy (bỏ để tiết kiệm hạn mức API). |
+| `log-parsing-and-json-formatting` | Phần lớn tổng quát (service name, thứ tự sắp xếp, header `schema_version`/`generated_by` là quy ước Acme). Bước 4 nêu cú pháp `-- last message repeated N times --` lấy từ log học, hơi **riêng cho tác vụ học** (nguy cơ quá khớp nếu log mới dùng cú pháp khác). | Đúng với 3 `detail` của logs-learn. Không thấy hướng dẫn gây hại. | 9 dòng. `description` *"Use when parsing log files, extracting structured errors, and formatting JSON outputs"*: đúng tình huống. `skills_read`: như trên. |
 
 ## 7. Kết quả so sánh (Phần 4.3, 4.4)
 

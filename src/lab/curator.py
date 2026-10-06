@@ -62,8 +62,11 @@ Find the general PROCESS mistakes and organisational conventions behind them (no
 {max_skills} short skills that prevent them on NEW tasks of the same kind.
 
 Rules:
-- Skills must be general: no task ids, no file, function or column names specific to one task, no answers or numbers.
-  Output names that the organisation's conventions require (stated in the feedback) are allowed, because they are the rule.
+- Skills must be general: no task ids, no file, function or column names specific to one task, no values computed
+  from a task's data.
+- The organisational conventions in the feedback (lines starting with "RULE:") are not stated in task instructions, so
+  a vague skill ("use the required heading") is useless. Copy every convention PRECISELY: exact output file names,
+  headings, bullet formats, JSON keys and constant values, units, casing and sort orders. These are rules, not answers.
 - Each skill has YAML frontmatter with `name` (lowercase letters, digits and hyphens) and `description` (one sentence
   starting with "Use when ..." that names the broad kind of task), then at most 40 lines of imperative instructions
   (a numbered checklist ending with a self-check works well).
