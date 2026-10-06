@@ -7,7 +7,7 @@
 
 - Nhà cung cấp và mô hình: Google Gemini API, `LAB_MODEL=google_genai:gemini-3.5-flash-lite` (gói miễn phí). `LAB_TEMPERATURE=0` nhưng **bị bỏ qua**: thư viện cảnh báo model này dùng tham số lấy mẫu cố định, nên mỗi lần chạy có tính ngẫu nhiên. `recursion_limit` = 60 (mặc định).
 - Phiên bản: `deepagents` 0.7.21, `langchain-google-genai` 4.4.0 (cài thêm bằng `pip install langchain-google-genai`, không có trong `pyproject.toml`). Máy Windows 11, chạy trong Docker (`python:3.12-slim`) theo `Dockerfile`.
-- Số lần chạy tác vụ đã dùng / ngân sách: 23 / 30 (gồm 6 lần không hợp lệ do CRLF và 3 lần lỗi hạ tầng), cùng 3 lần gọi curator.
+- Số lần chạy tác vụ đã dùng / ngân sách: 27 / 30 (gồm 6 lần không hợp lệ do CRLF, 4 lần lỗi hạ tầng và 1 lần bị ngắt), cùng 3 lần gọi curator.
 - Commit của tag `freeze`: `8954721` (commit `hypotheses`: `0000d67`).
 
 ## 2. Giả thuyết (commit TRƯỚC tag `freeze`, Phần 4.0)
@@ -55,13 +55,18 @@ Nhận xét:
   - **code-learn = 6**: `explorer` ×3, `implementer` ×2, `reviewer` ×1. Tác tử chính giao việc cho cả ba vai trò, nhưng gọi `explorer` 3 lần liên tiếp với yêu cầu gần trùng nhau (lần 3: *"Read the exact contents of ..."*). Đây là dấu hiệu tác tử chính không tin báo cáo tóm tắt và phải hỏi lại, gây thừa chi phí.
   - **logs-learn = 4**: `explorer` ×2, `implementer` ×1, `reviewer` ×1. Lần này lời giao việc cho `implementer` liệt kê đầy đủ các quy tắc của đề (*"strictly according to all rules: 1. Filter: include only entries whose level is ERROR or CRITICAL ... 2. timestamp_utc: converted to UTC ..."*). Nhờ vậy 6/6 check kỹ thuật đạt, nhưng 3 check `rule_` vẫn fail giống baseline, vì quy ước không có trong đề nên tác tử chính không thể truyền đi.
   - **data-learn**: lần chạy bị lỗi hạ tầng (lần 1: `429 RESOURCE_EXHAUSTED`; lần 2: `RemoteProtocolError: Server disconnected`), không dùng để phân tích.
+  - **code-eval = 3**: `explorer` ×2, `implementer` ×1. Đạt 7/11, bằng baseline; cùng fail 4 check `rule_`.
+  - **data-eval = 7**: `explorer` ×1, rồi 3 vòng `implementer` → `reviewer` liên tiếp. `reviewer` phát hiện sai, nhưng lời giao việc sửa lỗi chỉ ghi *"Fix the script to correctly calculate march_orders_utc and all required keys"*, không truyền định nghĩa hay quy tắc múi giờ của đề. Sau 3 vòng, check kỹ thuật `march_orders_utc` vẫn fail (baseline đạt). Đây là ví dụ rõ về **mất thông tin khi giao việc**: mỗi subagent bắt đầu lại từ đầu, chỉ thấy lời giao việc ngắn.
+  - **logs-eval**: lần chạy bị ngắt thủ công (Ctrl+C) do chạy quá lâu sát hạn nộp; không có kết quả.
 - Thông tin thiếu khi giao việc:
   - Không lời giao việc nào chép quy tắc *"Do not modify the existing files in `tests/`"* của đề. Lời giao cho `implementer` chỉ ghi *"Implement fixes for parse_price, apply_discount, low_stock, and to_csv_row according to their docstring specifications..."*, và check `tests_not_modified` vẫn fail như ở baseline.
   - `reviewer` được gọi (*"Run pytest and check git status/diff..."*), nhưng không được giao danh sách quy tắc của đề, nên không phát hiện vi phạm.
   - Kết luận: `SUBAGENTS_NOTE` yêu cầu *"put ALL the task rules ... in the delegation message"*, nhưng tác tử chính không làm theo.
 - Token và thời gian, cùng điểm ở cả hai tác vụ:
   - code-learn: `subagents` 370,275 token / 206.8 s so với `baseline` 342,181 token / 154.6 s (**+8% token, +34% thời gian**), cùng 6/10.
-  - logs-learn: `subagents` 262,825 token / 118.7 s so với `baseline` 71,373 token / 51.8 s (**gấp 3,7 lần token**), cùng 6/9. Số `tool_calls` của luồng chính giảm (10 so với 25) vì công việc chuyển vào subagent, nhưng token vẫn được tính đủ nhờ `UsageMetadataCallbackHandler`.
+  - logs-learn: `subagents` 262,825 token / 118.7 s so với `baseline` 71,373 token / 51.8 s (**gấp 3,7 lần token**), cùng 6/9.
+  - code-eval: 288,430 token / 224.7 s so với 147,987 token / 94.7 s (**gấp 1,9 lần**), cùng 7/11.
+  - data-eval: 767,971 token / 422.8 s so với 79,078 token / 35.0 s (**gấp 9,7 lần**), điểm thấp hơn (4/9 so với 5/9). Số `tool_calls` của luồng chính giảm (10 so với 25) vì công việc chuyển vào subagent, nhưng token vẫn được tính đủ nhờ `UsageMetadataCallbackHandler`.
 
 ## 6. Self-evolving: skill do curator sinh (Phần 3)
 
@@ -85,20 +90,21 @@ Nhận xét:
 | code-learn | 6/10 | 6/10 | 9/10 |
 | data-learn | 5/8 | 0/8 | 5/8 |
 | logs-learn | 6/9 | 6/9 | 9/9 |
-| code-eval | 7/11 | - | 1/11 |
-| data-eval | 5/9 | - | 5/9 |
+| code-eval | 7/11 | 7/11 | 1/11 |
+| data-eval | 5/9 | 4/9 | 5/9 |
 | logs-eval | 6/10 | - | 9/10 |
 | **Mean score - learning tasks** | 0.63 | 0.42 | 0.84 |
-| **Mean score - evaluation tasks** | 0.60 | - | 0.52 |
-| **Mean tokens per run** | 147,780 | 330,185 | 128,247 |
-| **Runs that read a skill** | 0/6 | 0/3 | 6/6 |
+| **Mean score - evaluation tasks** | 0.60 | 0.54 | 0.52 |
+| **Mean tokens per run** | 157,653 | 409,391 | 128,247 |
+| **Runs that read a skill** | 0/6 | 0/5 | 6/6 |
 
 `python scripts/check_breakdown.py`:
 
 ```text
 condition     role    technical  house rules  mean tokens  read a skill
-baseline      eval     18/18         0/12          74,075      0/3
+baseline      eval     18/18         0/12          93,820      0/3
 baseline      learn    17/18         0/9          221,485      0/3
+subagents     eval     11/12         0/8          528,200      0/2
 subagents     learn    12/18         0/9          330,185      0/3
 skills-auto   eval     12/18         3/12          76,300      3/3
 skills-auto   learn    17/18         6/9          180,194      3/3
@@ -108,10 +114,10 @@ skills-auto   learn    17/18         6/9          180,194      3/3
 
 Các lần chạy có `error` hoặc bất thường:
 
-- `subagents/data-learn` (0/8): `RemoteProtocolError: Server disconnected` (lỗi hạ tầng; lần trước đó là `429`). Điểm 0/8 không phản ánh tác tử; loại khỏi phân tích. Trung bình `subagents` học tính lại trên 2 tác vụ hợp lệ: (6/10 + 6/9)/2 = **0.63**, bằng baseline.
-- `baseline/code-eval` (7/11): `RemoteProtocolError` xảy ra giữa chừng; workspace vẫn được chấm trên trạng thái đã sửa (7/11), nhưng `tool_calls` = 0 và vết rỗng do `invoke` ném lỗi (hạn chế đã nêu trong `03_runner.md`).
+- `subagents/data-learn` (0/8): `RemoteProtocolError: Server disconnected` (lỗi hạ tầng; lần trước đó là `429`). Điểm 0/8 không phản ánh tác tử; loại khỏi phân tích. Trung bình `subagents` học tính lại trên 2 tác vụ hợp lệ: (6/10 + 6/9)/2 = **0.63**, bằng baseline. Tương tự, `subagents learn` kỹ thuật 12/18 bao gồm 5 check fail của lần chạy lỗi này; trên 2 tác vụ hợp lệ là 12/13.
+- `baseline/code-eval`: lần chạy đầu gặp `RemoteProtocolError` giữa chừng (7/11, vết rỗng); đã **chạy lại** theo hướng dẫn của GUIDE, lần chạy lại hợp lệ, cũng 7/11 (24 tool call). Bảng dùng lần chạy lại.
 - `skills-auto/code-eval` (1/11): **không có `error`**. Vết cho thấy tác tử đọc cả 2 skill và mọi tệp nguồn, rồi ở bước thứ 15 model trả về một thông điệp suy biến (nội dung văn bản chỉ là `"ass"`) và kết thúc mà không sửa tệp nào. 1/11 bằng điểm của workspace chưa sửa. Đây là lỗi của model (một mẫu ngẫu nhiên hỏng), không phải do skill chỉ dẫn sai, nhưng vẫn là một lần chạy hợp lệ nên được giữ nguyên trong bảng.
-- `subagents` trên tác vụ đánh giá: **không chạy** do hết hạn mức API miễn phí (500 request/ngày) trước hạn nộp.
+- `subagents/logs-eval`: **không có kết quả**. Lần chạy bị ngắt thủ công (Ctrl+C) vì kéo dài sát hạn nộp; trung bình `subagents` trên tác vụ đánh giá (0.54) chỉ tính 2 tác vụ.
 
 ## 8. Phân tích
 
@@ -119,6 +125,7 @@ Các lần chạy có `error` hoặc bất thường:
    - Tác vụ học: `skills-auto` cải thiện (0.63 → 0.84). code-learn 6 → 9/10, logs-learn 6 → 9/9, data-learn giữ 5/8. `subagents` không cải thiện (0.63 trên 2 tác vụ hợp lệ, bằng baseline).
    - Tác vụ đánh giá, xét trung bình: `skills-auto` **thấp hơn** baseline (0.52 so với 0.60). Nhưng chênh lệch này do một lần chạy suy biến (code-eval 1/11, xem mục 7).
    - Tác vụ đánh giá, xét từng tác vụ: logs-eval tăng rõ (6 → 9/10), data-eval không đổi (5/9), code-eval không kết luận được.
+   - `subagents` trên tác vụ đánh giá (2 tác vụ): 0.54, thấp hơn baseline trên cùng 2 tác vụ ((7/11 + 5/9)/2 = 0.60). code-eval bằng nhau (7/11); data-eval kém hơn 1 check kỹ thuật (`march_orders_utc`), do mất thông tin khi giao việc (mục 5).
    - Như vậy `skills-auto` cải thiện tác vụ học nhiều hơn tác vụ đánh giá: +0.21 so với −0.08 (hoặc +0.15 nếu bỏ code-eval). Đây là dấu hiệu **chuyển giao một phần**: lợi ích chuyển sang tác vụ đánh giá chỉ ở họ có skill và có quy ước dùng lại (logs). Kết quả phù hợp với H3, và không đủ dữ liệu để khẳng định H2 cho họ code.
 2. **Check kỹ thuật so với check quy ước.**
    - Skill chỉ giúp nhóm **check quy ước**: tác vụ học 0/9 → 6/9, tác vụ đánh giá 0/12 → 3/12.
@@ -132,27 +139,28 @@ Các lần chạy có `error` hoặc bất thường:
 4. **Chi phí.**
    - Token trung bình trên tác vụ học: baseline 221,485; `subagents` 330,185 (gấp 1.5 lần, nếu chỉ tính 2 lần chạy hợp lệ thì 316,550); `skills-auto` 180,194 (−19%).
    - Điểm trên 100k token (tác vụ học): baseline 0.28; `skills-auto` 0.47. `skills-auto` hiệu quả nhất, vì skill cho tác tử một checklist rõ ràng nên ít bước dò hơn (ví dụ logs-learn 7 tool call so với 9).
-   - Tác vụ đánh giá: token gần bằng nhau (74,075 so với 76,300).
-   - **Đa tác tử không đáng chi phí** trong thí nghiệm này: cùng điểm với baseline trên tác vụ học nhưng tốn hơn 8% (code) đến 3.7 lần (logs) token, vì chia việc không cung cấp thêm quy ước nào.
+   - Tác vụ đánh giá: baseline 93,820, `skills-auto` 76,300 (−19%), `subagents` 528,200 (2 tác vụ; baseline trên cùng 2 tác vụ là 113,533, tức **gấp 4,7 lần**).
+   - Điểm trên 100k token (tác vụ đánh giá): baseline 0.64; `skills-auto` 0.68; `subagents` 0.10.
+   - **Đa tác tử không đáng chi phí** trong thí nghiệm này: điểm bằng hoặc thấp hơn baseline ở cả 4 tác vụ hợp lệ, nhưng tốn từ 1,08 lần (code-learn) đến 9,7 lần (data-eval) token, vì chia việc không cung cấp thêm quy ước nào.
 5. **Rò rỉ và quá khớp.**
    - **Rò rỉ:** không có. `validate_skill` đã chặn hai lần một skill chứa từ trùng với định danh của tác vụ đánh giá (`orders`); thực chất đó là từ thông dụng, nên đây là dương tính giả. Curator chỉ đọc kết quả có `role == "learn"` (có test kiểm tra). Mình không mở `check.py`, và chỉ đọc vết của tác vụ đánh giá sau khi tạo tag `freeze`.
    - **Quá khớp nhẹ:** skill logs nêu cú pháp dòng lặp `-- last message repeated N times --` lấy từ log học. Trên logs-eval điều này không gây hại (các check kỹ thuật đạt).
 6. **Nhiễu.**
    - Không chạy Phần 3.4 trước đóng băng (để dành hạn mức API cho lần chạy chính thức), nên **không có cặp đo nhiễu trực tiếp** cho cùng bộ skill.
-   - Bằng chứng gián tiếp: (a) model bỏ qua `temperature=0`; (b) một lần chạy suy biến hoàn toàn (code-eval 1/11) dù tác tử đã đọc đúng skill; (c) một check kỹ thuật đổi kết quả giữa các điều kiện mà không có lý do rõ (`low_stock_follows_docstring`).
+   - Bằng chứng gián tiếp: (a) model bỏ qua `temperature=0`; (b) một lần chạy suy biến hoàn toàn (code-eval 1/11) dù tác tử đã đọc đúng skill; (c) `baseline/code-eval` chạy 2 lần (lần đầu gặp lỗi mạng giữa chừng) đều ra 7/11, cho thấy ở tác vụ này kết quả khá ổn định; (d) một check kỹ thuật đổi kết quả giữa các điều kiện mà không có lý do rõ (`low_stock_follows_docstring`).
    - Như vậy chênh lệch nhỏ hơn hoặc bằng 1 check mỗi tác vụ trong bảng không đáng tin. Chỉ các chênh lệch lớn, nhất quán và có cơ chế giải thích trong vết (tăng 3 check `rule_` ở code-learn, logs-learn, logs-eval) mới đủ để rút kết luận.
 
 ## 9. Hạn chế và tính hợp lệ
 
 1. **Mỗi cấu hình chỉ chạy một lần, và model có nhiễu** (`temperature` bị bỏ qua, có một lần chạy suy biến). Một lần chạy hỏng làm đảo ngược kết luận trung bình trên tác vụ đánh giá (0.52 so với 0.60). Mọi chênh lệch nhỏ hơn hoặc bằng 1 check đều có thể là nhiễu. Cần ít nhất 3 lần lặp mỗi cấu hình để kết luận.
 2. **Ít tác vụ** (3 học, 3 đánh giá, mỗi họ chỉ 1 cặp). Kết quả "skill giúp" thực chất dựa vào 2 họ (code, logs); họ data không có skill. Không thể khái quát cho loại tác vụ khác.
-3. **Thiếu dữ liệu do hạ tầng:** không chạy `subagents` trên tác vụ đánh giá; `subagents/data-learn` và `baseline/code-eval` gặp lỗi mạng. Kết luận về đa tác tử chỉ dựa trên 2 tác vụ học.
+3. **Thiếu dữ liệu do hạ tầng và thời gian:** `subagents/data-learn` lỗi mạng; `subagents/logs-eval` bị ngắt nên không có kết quả. Kết luận về đa tác tử dựa trên 4 tác vụ (2 học, 2 đánh giá), nên trung bình cột `subagents` không so trực tiếp được với hai cột còn lại.
 4. **Quy ước do giảng viên thiết kế** và được phát biểu chính xác trong `detail`. Curator chỉ cần chép lại, nên đây là trường hợp thuận lợi cho tiến hóa từ phản hồi. Trong thực tế, phản hồi thường mơ hồ hơn, và lần chạy curator đầu tiên (skill mơ hồ) cho thấy chất lượng skill phụ thuộc mạnh vào prompt của curator.
 5. **Chỉ một model** (`gemini-3.5-flash-lite`, model nhỏ). Model mạnh hơn có thể tự suy ra một phần quy ước, hoặc tận dụng subagent tốt hơn.
 
 ## 10. Kết luận
 
-Skill do curator tự sinh cải thiện rõ các check quy ước đã học: tác vụ học 0/9 → 6/9, và chuyển được sang logs-eval (6 → 9/10). Skill không giúp quy ước mới của tác vụ đánh giá, và không giúp họ data (skill bị bộ lọc rò rỉ chặn). Điểm trung bình trên tác vụ đánh giá không cho thấy cải thiện (0.52 so với 0.60), chủ yếu do một lần chạy suy biến; với một lần chạy mỗi cấu hình, không thể khẳng định hiệu quả tổng thể. Đa tác tử không tăng điểm nhưng tốn đến 3.7 lần token, vì lỗi chủ yếu là thiếu quy ước chứ không phải thiếu năng lực xử lý. Đề xuất tiếp theo: lặp mỗi cấu hình ít nhất 3 lần để đo nhiễu, và thay bộ lọc rò rỉ dạng so khớp chuỗi bằng danh sách định danh chính xác (tên tệp, id) để không chặn nhầm từ thông dụng như "orders".
+Skill do curator tự sinh cải thiện rõ các check quy ước đã học: tác vụ học 0/9 → 6/9, và chuyển được sang logs-eval (6 → 9/10). Skill không giúp quy ước mới của tác vụ đánh giá, và không giúp họ data (skill bị bộ lọc rò rỉ chặn). Điểm trung bình trên tác vụ đánh giá không cho thấy cải thiện (0.52 so với 0.60), chủ yếu do một lần chạy suy biến; với một lần chạy mỗi cấu hình, không thể khẳng định hiệu quả tổng thể. Đa tác tử không tăng điểm ở tác vụ nào nhưng tốn 1,1–9,7 lần token, vì lỗi chủ yếu là thiếu quy ước chứ không phải thiếu năng lực xử lý. Đề xuất tiếp theo: lặp mỗi cấu hình ít nhất 3 lần để đo nhiễu, và thay bộ lọc rò rỉ dạng so khớp chuỗi bằng danh sách định danh chính xác (tên tệp, id) để không chặn nhầm từ thông dụng như "orders".
 
 ## Phụ lục
 
@@ -170,6 +178,9 @@ Skill do curator tự sinh cải thiện rõ các check quy ước đã học: t
   11. `git commit -m "hypotheses"` (`0000d67`) → `git commit --allow-empty -m "freeze skills" && git tag freeze` (`8954721`).
   12. `python -m lab.runner --condition baseline --tasks eval`; `python -m lab.runner --condition skills-auto --tasks all`.
   13. `python scripts/verify_freeze.py` → OK; `python -m lab.compare > report/table.md`; `python scripts/check_breakdown.py`.
+  14. `python -m lab.runner --condition baseline --tasks code-eval` (chạy lại sau lỗi mạng) → 7/11.
+  15. `python -m lab.runner --condition subagents --tasks eval` → code-eval 7/11, data-eval 4/9; logs-eval bị ngắt (Ctrl+C).
+  16. `python -m lab.compare > report/table.md`; `python scripts/check_breakdown.py`.
 - Thử thách mở rộng (nếu có): không làm.
 - Ghi chú khác:
   - **CRLF:** git trên Windows (`core.autocrlf=true`) đổi các tệp tác vụ sang CRLF khi checkout. Kiểm chứng bằng `grade()`: workspace `code-learn` chưa sửa đạt `tests_not_modified` ở dạng LF nhưng fail ở dạng CRLF. Mọi lần chạy trước khi sửa bị loại khỏi phân tích.
