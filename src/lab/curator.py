@@ -4,10 +4,11 @@ Pseudo-code: guides/pseudocode/04_curator.md
 Kiểm tra:    pytest tests/test_04_curator.py
 Chạy thật:   python -m lab.curator
 """
+import json
 import re
 from pathlib import Path
 
-from .tasks import eval_markers   # có sẵn: định danh của tác vụ đánh giá, tính lúc chạy
+from .tasks import ROOT, eval_markers   # có sẵn: định danh của tác vụ đánh giá, tính lúc chạy
 
 # ---- CÓ SẴN, KHÔNG SỬA: kiểm tra và tách khối skill (phần dễ sai và liên quan bảo mật) ----------------
 SAFE_NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -55,6 +56,29 @@ def parse_skill_blocks(reply: str) -> list[tuple[str, str]]:
 # --------------------------------------------------------------------------------------------------
 
 
+PROMPT = """You write SKILLS for a coding and data-analysis agent.
+Below are the failed checks (name and the review bot's feedback) and the end of the execution trace of several runs.
+Find the general PROCESS mistakes and organisational conventions behind them (not specific answers) and write at most
+{max_skills} short skills that prevent them on NEW tasks of the same kind.
+
+Rules:
+- Skills must be general: no task ids, no file, function or column names specific to one task, no answers or numbers.
+  Output names that the organisation's conventions require (stated in the feedback) are allowed, because they are the rule.
+- Each skill has YAML frontmatter with `name` (lowercase letters, digits and hyphens) and `description` (one sentence
+  starting with "Use when ..." that names the broad kind of task), then at most 40 lines of imperative instructions
+  (a numbered checklist ending with a self-check works well).
+- Output format, exactly:
+=== SKILL: <name> ===
+---
+name: <name>
+description: <when to use>
+---
+<body>
+=== END ===
+
+{runs}"""
+
+
 def curate_skills(results_dir="results", source_condition="baseline", out_dir=None, model=None, max_skills: int = 3) -> list[Path]:
     """Đọc các lần chạy của TÁC VỤ HỌC (role == "learn") trong `source_condition`, nhờ LLM viết skill, ghi file.
 
@@ -68,7 +92,40 @@ def curate_skills(results_dir="results", source_condition="baseline", out_dir=No
     model mặc định: make_model() (lab.model).
     Trả về: danh sách đường dẫn SKILL.md đã ghi.
     """
-    raise NotImplementedError("TODO: cài đặt curate_skills (xem guides/pseudocode/04_curator.md)")
+    out_dir = Path(out_dir) if out_dir else ROOT / "skills" / "auto"
+    runs = []
+    for f in sorted(Path(results_dir, source_condition).glob("*/run.json")):
+        r = json.loads(f.read_text(encoding="utf-8"))
+        if r.get("role") != "learn":
+            continue                                          # never use evaluation data
+        tr = f.with_name("trace.md")
+        trace = tr.read_text(encoding="utf-8")[-6000:] if tr.exists() else ""
+        failed = [(c["name"], c.get("detail", "")) for c in r.get("checks", []) if not c.get("passed")]
+        runs.append({"task": r["task"], "failed": failed, "trace": trace})
+    if not any(r["failed"] for r in runs):
+        print("WARNING: no failed checks in the learning runs; nothing to curate")
+        return []
+
+    text = "\n\n".join(
+        f"## Run: {r['task']}\nFailed checks:\n" + "\n".join(f"- {n}: {d}" for n, d in r["failed"])
+        + f"\nTrace (end):\n{r['trace']}"
+        for r in runs if r["failed"])
+    if model is None:
+        from .model import make_model
+        model = make_model()
+    reply = model.invoke(PROMPT.format(max_skills=max_skills, runs=text)).text   # .text: content may be a block list
+
+    written = []
+    for name, skill in parse_skill_blocks(reply):
+        problems = validate_skill(skill, expected_name=name)
+        if len(written) >= max_skills or problems:
+            print(f"skipped {name!r}: {problems or 'max_skills reached'}")
+            continue
+        path = out_dir / name / "SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(skill + "\n", encoding="utf-8")
+        written.append(path)
+    return written
 
 
 if __name__ == "__main__":
